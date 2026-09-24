@@ -60,19 +60,40 @@ Choisir le format **GRBG** ou **Y800**, démarrer le flux, lire les métriques
 
 ---
 
-## Connecter GitHub (Origin → GitHub)
+## Synchroniser avec GitHub
 
-Le dépôt Cursor/Origin doit être lié à GitHub pour que les Releases et
-Actions fonctionnent :
+Ce dépôt a été **créé sur Origin** (New Project). Dans ce cas, les
+paramètres du dépôt n’affichent **pas** « Connect GitHub » — seuls les
+dépôts importés depuis GitHub montrent un statut de sync et « Detach from
+GitHub ».
 
-1. Ouvrir https://cursor.com/codebase/eric-mckenzie/neximage-capture
-2. Paramètres du dépôt → **Connect GitHub** / **Publish to GitHub**
-3. Créer ou lier `emckenz/neximage-capture` sur GitHub
-4. Pousser le tag de release (fait automatiquement par CI, ou manuellement) :
+### Option A — Sync automatique (recommandé, sans PC)
+
+1. Ouvrir https://cursor.com/codebase (page d’accueil, pas Settings)
+2. Choisir **Sync from GitHub**
+3. Sélectionner `emckenz/neximage-capture`
+4. Attacher les futurs agents Cloud à **cette copie miroir**
+
+GitHub devient la source de vérité : un `git push` vers l’URL Origin est
+relayé vers GitHub, et les Actions se déclenchent automatiquement.
+
+Prérequis : app GitHub Cursor installée + droits admin sur le repo GitHub.
+
+### Option B — Sans reconfigurer (depuis le téléphone)
+
+Lancer manuellement la Release sur GitHub Actions (compile le `main` GitHub,
+sans tag local) :
+
+https://github.com/emckenz/neximage-capture/actions/workflows/android-release.yml
+
+→ **Run workflow** → version `0.1.2`
+
+### Option C — Push manuel (PC ou machine avec git)
 
 ```bash
-git push origin v0.1.0
-git push github v0.1.0   # si remote github configuré
+git pull origin main
+git push github main
+git push github v0.1.2   # pour déclencher Android Release via tag
 ```
 
 Le workflow [`.github/workflows/android-release.yml`](.github/workflows/android-release.yml)
