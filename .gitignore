@@ -1,0 +1,21 @@
+# Android build
+prototype/**/build/
+prototype/**/.gradle/
+prototype/**/.cxx/
+*.apk
+*.aab
+
+# Android SDK (local only)
+android-sdk/
+
+# Agent tool artifacts
+agent-tools/
+
+# IDE
+.idea/
+*.iml
+local.properties
+
+# OS
+.DS_Store
+Thumbs.db
