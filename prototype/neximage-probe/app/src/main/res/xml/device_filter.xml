@@ -1,7 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<resources>
-    <!-- Celestron NexImage 10 (rebadge TIS) -->
-    <usb-device vendor-id="6558" product-id="34329" />
-    <!-- Generic UVC class fallback -->
-    <usb-device class="239" subclass="2" protocol="1" />
-</resources>

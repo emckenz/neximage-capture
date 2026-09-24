@@ -1,40 +1,46 @@
-# Astrophotography — NexImage 10 on Android
+# NexImage Probe
 
-Projet d'application d'astrophotographie pour **Samsung Galaxy Z Fold 8** + **Celestron NexImage 10** via USB-C OTG.
+Prototype Android pour la Celestron NexImage 10 branchée en USB-C sur un
+Samsung Galaxy Z Fold 8. Il énumère l’UVC, négocie un format brut (Y800,
+GRBG, ou tout GUID inconnu), assemble les trames dans un tampon natif et
+affiche un aperçu dématricé sur le GPU.
 
-## Contenu actuel
+L’architecture est argumentée dans [docs/TECHNOLOGY-DECISION.md](docs/TECHNOLOGY-DECISION.md).
+Expo n’est pas utilisé : le flux passe par usbfs (`USBDEVFS_SUBMITURB`),
+inaccessible depuis Expo Go et coûteux à traverser depuis un pont React Native.
 
-| Chemin | Description |
-|--------|-------------|
-| [`docs/TECHNOLOGY-DECISION.md`](docs/TECHNOLOGY-DECISION.md) | Analyse comparative des architectures + **recommandation finale** |
-| [`prototype/neximage-probe/`](prototype/neximage-probe/) | Prototype Android natif de validation USB/UVC |
+Les mesures affichées (fps, débit, trames perdues, bit ERR, vitesse USB,
+latence d’aperçu, CPU, mémoire) ne valent que sur le téléphone. Cet
+environnement n’a pas la caméra.
 
-## Décision architecturale (résumé)
-
-**Android natif Kotlin + Jetpack Compose + NDK (libusb/libuvc) + OpenGL ES 3.2**
-
-Expo / React Native sont **écartés** : trop de copies mémoire, pas d'accès Bayer RAW UVC, latence incompatible avec l'astrophotographie planetary.
-
-Voir le document complet pour la justification détaillée.
-
-## Prototype de validation
+## Lancer les tests du protocole
 
 ```bash
-cd prototype/neximage-probe
-./gradlew assembleDebug
+make -C native/uvc test
+```
+
+Ils vérifient le GUID `47524247-0000-1000-8000-00aa00389b71` (Bayer GRBG
+8 bits), le parse des descripteurs, l’assemblage UVC et le score de mosaïque.
+
+## Installer sur le Fold
+
+Prérequis : Android SDK 35, NDK 27, un câble USB 3, et assez de VBUS
+(la DFK 33UJ003, jumelle probable de la NexImage 10, tire environ 770 mA).
+
+```bash
+export ANDROID_HOME="$HOME/Android/Sdk"
+echo "sdk.dir=$ANDROID_HOME" > local.properties
+./gradlew :app:assembleDebug
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
-Le prototype mesure : FPS, débit USB, latence, frames perdues, CPU, mémoire — et teste les formats **Y800** et **GRBG**.
+L’APK est `arm64-v8a` seulement. Branchez la caméra, accordez la permission
+USB, choisissez le format GRBG ou Y800, puis lisez la ligne de mesures.
 
-## Matériel requis
+`Sauver une trame` écrit `frame-<temps>.raw` et un JSON à côté, dans le
+dossier privé de l’appli. Le fichier est le brut, sans dématriçage.
+Le bouton de motif cycle GRBG, GBRG, RGGB, BGGR pour confirmer à l’œil.
 
-- Samsung Galaxy Z Fold 8
-- Celestron NexImage 10 (USB VID `199e`, PID `8619`)
-- Adaptateur USB-C OTG
-
-## Prochaines étapes
-
-1. Valider le prototype sur Fold 8 réel
-2. Confirmer FPS/drops à plein cadre 3872×2764
-3. Implémenter l'application complète selon l'architecture recommandée
+Si la vitesse affichée est High (USB 2), la pleine trame à 7 fps ne tient
+pas : il faudra un ROI. Si la caméra disparaît dès le flux, le VBUS du
+téléphone est en dessous de 770 mA et il faut un hub alimenté.

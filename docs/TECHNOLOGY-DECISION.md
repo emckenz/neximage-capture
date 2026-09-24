@@ -1,438 +1,275 @@
-# Décision technologique — Application d'astrophotographie NexImage 10
+# Décision technologique — capture NexImage 10 sur Galaxy Z Fold 8
 
-**Date :** 24 septembre 2026  
-**Cible matérielle :** Samsung Galaxy Z Fold 8 + Celestron NexImage 10 (USB-C OTG)  
-**Objectif :** Choisir l'architecture maximisant la qualité des données, le débit USB et le contrôle bas niveau — **sans contrainte Expo**.
+Statut : **architecture retenue, confirmation matérielle encore ouverte**.
+Le téléphone et la caméra ne sont pas dans cet environnement. Le prototype
+`NexImage Probe` mesure FPS, débit, pertes, latence, CPU et mémoire sur le Fold.
+Les chiffres de cet appareil ne sont donc pas inventés ici. Ce qui suit est
+décidé à partir des spécifications, du protocole UVC, des limites réelles de
+l’API USB Android, et du code ouvert qui pilote déjà cette caméra.
 
----
+## Caméra
 
-## 1. Contexte matériel et protocole
+La Celestron NexImage 10 est une UVC USB 3.0, rebadge probable de la
+The Imaging Source DFK 33UJ003.
 
-### Celestron NexImage 10
-
-| Paramètre | Valeur |
-|-----------|--------|
-| USB VID:PID | `199e:8619` (rebadge Imaging Source / TIS) |
-| USB | SuperSpeed USB 3.0 (5 Gbps), alimentation bus |
-| Capteur | ON Semi MT9J003, 3856×2764 px, 1.67 µm |
-| A/D | 12 bits (livré en 8 bits via UVC) |
-| Protocole | **UVC 1.x** (pas de driver propriétaire Windows requis sur Linux) |
-| FPS max | ~94 fps (ROI), ~7 fps plein cadre |
-| Contrôles UVC | Exposition absolue, gain, ROI matériel, AE mode |
-
-### Formats pixel confirmés (Linux / INDIGO / V4L2)
-
-| FOURCC UVC | Type | Résolution typique | Notes |
-|------------|------|-------------------|-------|
-| `GRBG` | 8-bit Bayer GRGR/BGBG | 3872×2764 | Format couleur natif |
-| `Y800` / `GREY` | 8-bit mono | variable | Monochrome, pas de debayer |
-| `Y16 ` | 16-bit mono | rare | Si exposé par le firmware |
+| Propriété | Valeur | Source |
+| --- | --- | --- |
+| Capteur | ON Semi / Aptina MT9J003, couleur, rolling shutter | Celestron, manuel TIS |
+| Pixels actifs | 3856 × 2764, 1,67 µm, 1/2,3" | Celestron |
+| Taille UVC observée | 3872 × 2764, 10 702 208 octets | V4L2 (oaCapture, INDIGO) |
+| CAN | 12 bits | Celestron |
+| Formats documentés DFK 33UJ003 | Bayer 8 bits (GR), Bayer 16 bits (GR), Y800, RGB24, YUY2, Y411 | Rochester Imaging / TIS |
+| Format réellement vu sous Linux | `GRBG` 8 bits, FourCC V4L2 `GRBG` | `v4l2-ctl`, INDIGO #421 |
+| Débit annoncé | jusqu’à 14 fps pleine trame (TIS) ; Celestron dit 7 fps pleine trame, 94 fps en ROI | fiches |
+| Contrôles | exposition absolue (observé 1…300000), gain, ROI matériel | V4L2, Celestron |
+| VID:PID | `199e:8619` | rapport oaCapture |
+| Alimentation | 770 mA à 5 V, 3,85 W | fiche DFK 33UJ003 |
+| Logiciels cités par Celestron | iCap, IC Capture, DirectShow, oaCapture | Celestron |
 
 ### GUID `47524247-0000-1000-8000-00aa00389b71`
 
-Analyse détaillée (voir §8) : ce GUID correspond au format **GRBG 8-bit Bayer**. Le suffixe `1000` (au lieu du `0010` standard DirectShow FOURCCMap) indique un sous-type media **propriétaire Celestron/TIS**, mais le payload pixel est identique au FOURCC UVC `GRBG`.
-
-### Samsung Galaxy Z Fold 8
-
-| Paramètre | Valeur |
-|-----------|--------|
-| SoC | Snapdragon 8 Elite Gen 5 for Galaxy |
-| GPU | Adreno 840 @ ~1.3 GHz |
-| API graphiques | OpenGL ES 3.2, Vulkan 1.3, OpenCL 3.0 |
-| USB | USB 3.1 Gen 2 Type-C, OTG host |
-| RAM | 12–16 Go LPDDR5X |
-| Android | 17 (API 36+) |
-
-Le Fold 8 dispose d'un GPU largement suffisant pour debayer 3872×2764 en temps réel (>30 fps preview) si le pipeline évite les copies mémoire inutiles.
-
----
-
-## 2. Priorités utilisateur (ordre décroissant)
-
-1. Qualité maximale des données NexImage 10  
-2. Zéro frame perdu (objectif)  
-3. Accès USB/UVC complet + RAW/Bayer  
-4. FPS maximal  
-5. Latence preview minimale  
-6. Contrôle Exposure/Gain/ROI/FPS  
-7. Capture RAW/lossless  
-8. Traitement GPU efficace  
-9. Stabilité Fold 8  
-10. UI Fold + astronomie nocturne  
-11. Facilité de développement *(dernier critère)*
-
----
-
-## 3. Solutions open source évaluées
-
-### 3.1 Accès USB/UVC Android
-
-| Projet | Licence | Dernière activité | Rôle |
-|--------|---------|-------------------|------|
-| [libuvc/libuvc](https://github.com/libuvc/libuvc) | BSD-3 | 2025 (issues actives) | Stack UVC cross-platform, parsing descriptors, isoc/bulk |
-| [libusb/libusb](https://github.com/libusb/libusb) | LGPL-2.1 | 2025 (v1.0.27+) | Accès USB userspace via fd Android |
-| [saki4510t/UVCCamera](https://github.com/saki4510t/UVCCamera) | Apache-2.0 | Maintenance lente | Référence Android : `uvc_get_device_with_fd`, isoc Android |
-| [ernestp/AndroidUSBCamera](https://github.com/ernestp/AndroidUSBCamera) | Apache-2.0 | **2026** (fork actif) | Fork maintenu, Android 16, 16K pages |
-| [jiangdongguo/AndroidUSBCamera](https://github.com/jiangdongguo/AndroidUSBCamera) | Apache-2.0 | Sep 2024 (upstream mort) | Base historique, 2700+ stars |
-| [anova-culinary/AndroidUSBCamera](https://github.com/anova-culinary/AndroidUSBCamera) | Apache-2.0 | Jun 2025 | Fork intermédiaire |
-
-**Limitations Android documentées (libuvc #299, libusb #1504, #1726) :**
-- `packets_per_transfer` par défaut (32) provoque `ENOMEM` sur MediaTek/Samsung → réduire à ≤12  
-- Transferts isochrones instables sur certains kernels Android  
-- Pas de `/dev/video*` sur Samsung sans module kernel → **libusb+libuvc via USB Host API obligatoire**  
-- Camera2 NDK ne voit pas le Bayer RAW des UVC externes
-
-### 3.2 Traitement Bayer / astrophotographie
-
-| Projet | Licence | Utilité |
-|--------|---------|---------|
-| [indigo-astronomy/indigo](https://github.com/indigo-astronomy/indigo) `ccd_uvc` | INDIGO | **Référence directe NexImage 10** : mapping FOURCC, contrôles UVC, capture FITS |
-| [indilib/indi](https://github.com/indilib/indi) | LGPL-2.1 | Driver V4L2 GRBG NexImage 5 |
-| [openastroproject/openastro](https://github.com/openastroproject/openastro) | GPL-3.0 | oaCapture — support NexImage 10 via libuvc |
-| [guvcview/guvcview](https://github.com/guvcview/guvcview) | GPL-2.0 | Debayer GRBG en live (colorspaces.c) |
-| [FFmpeg](https://github.com/FFmpeg/FFmpeg) `vulkan/debayer.comp.glsl` | LGPL-2.1 | Shaders debayer Vulkan compute (RGGB16, extensible GRBG8) |
-| OpenCV `Imgproc.demosaicing` | Apache-2.0 | Debayer CPU, portable mais lent plein cadre |
-
-### 3.3 GPU debayer
-
-| Approche | Avantages | Inconvénients |
-|----------|-----------|---------------|
-| **OpenGL ES 3.2 fragment shader** | Mature, intégration Surface/SurfaceView simple, Adreno optimisé | Overhead driver vs Vulkan |
-| **Vulkan 1.3 compute** | Moins de overhead CPU, compute parallèle | Complexité initiale élevée, gain GPU marginal pour 1 pipeline |
-| **OpenCL 3.0** | Compute généraliste | Moins intégré au pipeline rendu Android |
-| **CPU (libindigo/OpenCV)** | Simple | ~1–3 fps à 3872×2764, inacceptable pour preview |
-
-**Conclusion GPU :** OpenGL ES 3.2 pour le preview/debayer v1 ; migration Vulkan compute si profiling montre un goulot CPU/driver.
-
----
-
-## 4. Comparaison des architectures
-
-Légende : ✅ excellent · ⚠️ partiel · ❌ inadéquat · — non applicable
-
-| Critère | A) Expo + RN + Dev Build | B) RN sans Expo | C) Kotlin + Compose natif | D) Kotlin + NDK C/C++ | E) Natif + OpenGL ES | F) Natif + Vulkan | G) libusb/libuvc NDK | H) USB Host API seul |
-|---------|--------------------------|-----------------|---------------------------|----------------------|---------------------|-------------------|---------------------|---------------------|
-| **Accès USB** | ⚠️ module natif requis | ⚠️ idem | ✅ USB Host API | ✅ fd → libusb | ✅ | ✅ | ✅ | ⚠️ pas de parsing UVC |
-| **Compatibilité NexImage 10** | ⚠️ si module OK | ⚠️ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
-| **RAW/Bayer GRBG** | ⚠️ via JNI | ⚠️ | ✅ natif | ✅ | ✅ | ✅ | ✅ | ❌ |
-| **Contrôle UVC complet** | ⚠️ | ⚠️ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
-| **Formats propriétaires** | ⚠️ | ⚠️ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
-| **FPS max** | ❌ copies JNI | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ | — |
-| **Latence preview** | ❌ bridge JS | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ | — |
-| **Copies mémoire** | ❌ 3–5× | ❌ 3–5× | ✅ 1–2× | ✅ 1× | ✅ 1× | ✅ 1× | ✅ 1× | — |
-| **CPU preview** | ❌ élevé | ❌ | ✅ faible | ✅ minimal | ✅ minimal | ✅ minimal | ✅ minimal | — |
-| **GPU debayer** | ⚠️ indirect | ⚠️ | ✅ | ✅ | ✅ | ✅ | ✅ | — |
-| **Capture lossless** | ⚠️ | ⚠️ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
-| **Stabilité Fold 8** | ⚠️ Hermes+JNI | ⚠️ | ✅ | ✅ | ✅ | ✅ | ⚠️ tuning isoc | ❌ |
-| **Android moderne (API 36)** | ⚠️ Expo lag | ⚠️ | ✅ | ✅ | ✅ | ✅ | ⚠️ patches | ✅ |
-| **Support Fold (dual screen)** | ⚠️ | ⚠️ | ✅ WindowManager | ✅ | ✅ | ✅ | ✅ | — |
-| **Complexité** | Moyenne | Moyenne | Moyenne | Élevée | Élevée | Très élevée | Élevée | Faible |
-| **Maintenance** | Expo SDK | RN modules | Android standard | libuvc upstream | Standard | Vulkan boilerplate | libuvc+libusb | — |
-| **Dépendances** | Expo, RN, Hermes | RN, Hermes | Compose, AGP | +libuvc, libusb | +GLSL | +SPIR-V | idem G | Aucune lib UVC |
-| **Licences** | MIT + deps | MIT + deps | Apache-2.0 | BSD+LGPL | Apache-2.0 | Apache-2.0 | BSD+LGPL | Apache-2.0 |
-| **Déploiement Fold 8** | Dev build + sideload | idem | APK direct | APK direct | APK direct | APK direct | APK direct | Insuffisant |
-
-### Détail par architecture
-
-#### A) Expo + React Native + Development Build + modules natifs
-
-Expo Go est **exclu** : pas d'accès USB Host, pas de modules natifs arbitraires, pas de NDK direct.
-
-Avec Development Build, un module natif libuvc est théoriquement possible, mais :
-- Chaque frame traverse : USB → native → JNI → JSI/Hermes → React → Skia/View
-- Impossible de garantir zéro copy sans contourner complètement le bridge JS
-- Expo SDK ajoute une couche de mise à jour qui retarde le support Android 16/16K pages
-- Aucun projet astrophoto mature n'utilise cette stack
-
-**Verdict : ❌ Écarté** — la contrainte « facilité de dev » ne compense pas la perte de performance.
-
-#### B) React Native sans Expo
-
-Identique à A pour le pipeline frame. Des modules comme `react-native-vision-camera` ciblent les caméras **internes** Camera2, pas les UVC USB externes en Bayer RAW.
-
-**Verdict : ❌ Écarté**
-
-#### C) Android natif Kotlin + Jetpack Compose
-
-UI et logique métier en Kotlin. Accès USB via `UsbManager` + `UsbDeviceConnection.fileDescriptor`.
-
-Sans NDK, impossible de parser les descriptors UVC ni de faire des isoch/bulk transfers performants. Compose seul ne suffit pas.
-
-**Verdict : ⚠️ Nécessite couche native (→ D)**
-
-#### D) Kotlin/Compose + C/C++ NDK (USB + vidéo) ⭐
-
-Architecture optimale :
-```
-UsbManager (Kotlin) → fd → libusb → libuvc → ring buffer (native)
-                                              ↓
-                                    OpenGL ES debayer + histogram
-                                              ↓
-                                    SurfaceView / Compose AndroidView
-```
-
-- **1 copy** : USB DMA → buffer natif mlocké → texture GPU
-- Thread dédié capture (SCHED_FIFO si possible), thread render séparé
-- Kotlin gère permissions USB, UI Fold, contrôles expos/gain
-- Réutilise la logique INDIGO `ccd_uvc` pour le mapping formats/contrôles
-
-**Verdict : ✅ Recommandé**
-
-#### E) Android natif + OpenGL ES
-
-Sous-ensemble de D. OpenGL ES 3.2 fragment shader debayer (GRBG → RGBA8) :
-- ~280 Mpix/s sur GPU mobile (McGuire 2009, confirmé Adreno)
-- 3872×2764 = 10.7 Mpix → **<40 ms** par frame debayer HQ
-- Intégration native `Surface`/`AHardwareBuffer` pour zero-copy texture upload
-
-**Verdict : ✅ Composant preview/capture de D**
-
-#### F) Android natif + Vulkan
-
-Avantages réels : -30% CPU driver vs GL ES (Google I/O case study), latence légèrement inférieure.
-
-Inconvénients pour ce projet :
-- Debayer = 1 compute dispatch, GPU-bound identique
-- Boilerplate Vulkan (~2000 lignes) pour un gain preview marginal
-- Adreno 840 supporte les deux ; OpenGL ES suffit pour v1
-
-**Verdict : ⚠️ Phase 2** — migrer le debayer/histogramme si profiling le justifie
-
-#### G) libusb/libuvc via NDK
-
-**Obligatoire** sur Samsung sans `/dev/video*`. C'est le seul chemin userspace non-root validé par INDIGO et AndroidUSBCamera.
-
-Patches requis pour Android :
-```c
-// libuvc stream.c — Android safe mode
-#define PACKETS_PER_TRANSFER 8  // ou probe dynamique, max 12 sur Samsung
-```
-
-Utiliser `uvc_get_device_with_fd()` (patch saki4510t) pour Android 7+.
-
-**Verdict : ✅ Couche USB de D**
-
-#### H) Android USB Host API sans libuvc
-
-L'API `UsbDeviceConnection.bulkTransfer()` / `UsbRequest` permet un accès raw, mais :
-- Pas de parsing automatique des descriptors UVC
-- Re-implémentation manuelle de `VS_PROBE/COMMIT`, format négociation, isoc framing
-- INDIGO, libuvc, guvcview ont tous choisi libuvc
-
-**Verdict : ❌ Réinventer libuvc sans bénéfice**
-
-#### I) Autres options considérées
-
-| Option | Verdict |
-|--------|---------|
-| **Camera2 / NDK Camera external** | ❌ Expose YUV/JPEG, pas Bayer RAW GRBG pour UVC |
-| **V4L2 via /dev/video*** | ❌ Absent sur Samsung stock |
-| **Flutter + texture registry** | ❌ Même problème JNI/copies que RN |
-| **Capacitor / Ionic** | ❌ WebView, inadapté |
-| **INDIGO server embarqué + UI web** | ⚠️ Possible pour prototypage rapide, latence réseau locale, pas optimal mobile |
-| **oaCapture port Android** | ⚠️ GPL-3.0, pas de port Android existant |
-
----
-
-## 5. Pipeline recommandé (architecture cible)
+Ce n’est pas un GUID Windows canonique. C’est le vidage des 16 octets dans
+l’ordre mémoire, forme utilisée par INDIGO :
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                     Samsung Galaxy Z Fold 8                     │
-├─────────────────────────────────────────────────────────────────┤
-│  UI Layer (Kotlin + Jetpack Compose)                            │
-│  • Fold-aware layouts (WindowSizeClass, dual-pane)              │
-│  • Thème astronomie nocturne (rouge, OLED-friendly)             │
-│  • Contrôles : exposure, gain, ROI, format, record              │
-├─────────────────────────────────────────────────────────────────┤
-│  Service Layer (Kotlin)                                         │
-│  • UsbManager / permission / hotplug BroadcastReceiver          │
-│  • CameraSession lifecycle                                      │
-│  • File I/O FITS/RAW séquentiel (Storage Access Framework)      │
-├─────────────────────────────────────────────────────────────────┤
-│  Native Layer (C++17 NDK)                                       │
-│  • libusb + libuvc (patches Android)                            │
-│  • Ring buffer triple-buffered (lock-free SPSC)                 │
-│  • Frame metadata : timestamp, frame#, format, dropped count    │
-│  • UVC controls : AE, exposure abs, gain, ROI                   │
-├─────────────────────────────────────────────────────────────────┤
-│  GPU Layer (OpenGL ES 3.2)                                      │
-│  • Upload Bayer R8 → GL_R8 texture (PBO double-buffer)          │
-│  • Fragment shader debayer GRBG (Malvar-He ou bilinear HQ)      │
-│  • Histogramme compute (256 bins R/G/B)                         │
-│  • Output → SurfaceView / TextureView                           │
-├─────────────────────────────────────────────────────────────────┤
-│  Capture Layer                                                  │
-│  • RAW lossless : écriture directe buffer Bayer (pas de debayer)│
-│  • FITS header (INDIGO-compatible) avec BAYERPAT='GRBG'         │
-│  • Séquence video : container MKV ou SER                      │
-└─────────────────────────────────────────────────────────────────┘
-         ↑ USB-C OTG
-┌─────────────────┐
-│ NexImage 10     │
-│ 199e:8619 UVC   │
-│ GRBG/Y800       │
-└─────────────────┘
+47 52 42 47  00 00 10 00  80 00 00 aa  00 38 9b 71
+'G' 'R' 'B' 'G'
 ```
 
-### Copies mémoire cibles
+Le noyau Linux nomme cette suite `UVC_GUID_FORMAT_GRBG` et la mappe vers
+`V4L2_PIX_FMT_SGRBG8` : **Bayer 8 bits, motif GRBG** (ligne paire G R G R,
+ligne impaire B G B G), un octet par pixel, non compressé.
 
-| Étape | Copies |
-|-------|--------|
-| USB → ring buffer | 1 (DMA) |
-| ring buffer → GL PBO | 1 (ou 0 avec AHardwareBuffer) |
-| debayer GPU → Surface | 0 (on-GPU) |
-| capture RAW → fichier | 1 (async write, buffer dédié) |
-| **Total preview** | **1–2** |
-| **RN/Expo typique** | **4–6** |
+La forme GUID Microsoft du même format est
+`47425247-0000-0010-8000-00aa00389b71` (Data1 en little-endian). Les deux
+écritures désignent les mêmes octets. Le prototype accepte les deux.
 
----
+Y800 (`'Y','8','0','0'` + le même suffixe UVC) est le nom que le pilote TIS
+donne à **ces mêmes octets relus comme du gris**. oaCapture 1.8 a ajouté
+« 8-bit mono-as-raw » exactement pour la NexImage 10. Y800 n’est donc pas
+un second capteur : c’est le Bayer brut sans le mot « couleur ».
 
-## 6. Métriques de validation (prototype)
+Le CAN 12 bits n’est pas garanti sur le fil. Le format 16 bits TIS, s’il est
+présent dans les descripteurs, place en général les bits utiles dans les
+poids forts et met le bas à zéro. Le prototype doit lister tous les formats
+non compressés, ouvrir le plus profond, puis mesurer l’entropie réelle
+(octet bas toujours nul ou non). Tant que ce test n’a pas tourné sur la
+caméra, la capture de référence est **GRBG 8 bits brut**, sans dématriçage
+dans le fichier.
 
-Le prototype `prototype/neximage-probe/` mesure :
+### Bande passante
 
-| Métrique | Méthode | Seuil attendu |
-|----------|---------|---------------|
-| FPS réel | Compteur frames / wall clock | ≥5 fps @ 3872×2764 GRBG |
-| Débit USB | bytes/frame × fps | ~53 MB/s @ 7 fps plein cadre |
-| Latence | timestamp UVC header → Surface flip | <100 ms preview |
-| Frames perdues | `(received - displayed)` / received | <1% |
-| CPU | `/proc/self/stat` + `top` | <30% single core capture |
-| Mémoire | `Runtime.getRuntime()` + native heap | <200 MB steady state |
+| Mode | Taille trame | fps | Débit utile |
+| --- | ---: | ---: | ---: |
+| GRBG8 3872×2764 | 10,2 Mio | 7 | ~75 Mo/s |
+| GRBG8 pleine trame | 10,2 Mio | 14 | ~150 Mo/s |
+| GR16 / Y16 même géométrie | 20,4 Mio | 7 | ~150 Mo/s |
+| USB 2.0 utile | | | ~30–40 Mo/s |
+| USB 3.0 utile | | | ~300–400 Mo/s |
 
----
+Pleine trame à 7 fps **ne tient pas en USB 2**. Le Fold 8 a un USB-C 3.1.
+Le prototype lit `USBDEVFS_GET_SPEED` : si la négociation retombe en High
+Speed, le plan est un ROI matériel, pas un dématriçage plus malin.
 
-## 7. Risques et mitigations
+Le VBUS est l’autre risque. 770 mA dépasse le budget 500 mA de beaucoup
+d’hôtes USB 2. Un port USB 3 a un budget de 900 mA, donc la marge est
+faible. Si l’énumération échoue ou si la caméra se déconnecte sous charge,
+il faut un hub alimenté. Ce n’est pas un problème de framework.
 
-| Risque | Probabilité | Mitigation |
-|--------|-------------|------------|
-| Isoc ENOMEM Samsung | Élevée | `packets_per_transfer=8`, probe dynamique |
-| USB 3 bandwidth saturation | Moyenne | ROI matériel, format Y800 pour focus |
-| Chauffe Fold en capture longue | Moyenne | Limit FPS preview, pause capture |
-| GRBG non reconnu par libuvc | Faible | Fallback FOURCC custom mapping (INDIGO) |
-| Android 16K page size | Faible | Fork ernestp/AndroidUSBCamera, NDK r27+ |
+## Ce que l’API Android permet vraiment
 
----
+`UsbRequest` et `bulkTransfer` ne font que du **bulk** et de l’**interrupt**.
+Le transfert isochrone n’existe pas dans le SDK Java. Les caméras UVC
+historiques streament en isochrone ; plusieurs USB 3 TIS streament en bulk.
+Il faut les deux.
 
-## 8. Analyse du GUID `47524247-0000-1000-8000-00aa00389b71`
+Le motif qui marche sans root :
 
-### Décodage
+1. `UsbManager` ouvre l’appareil et donne un descripteur de fichier.
+2. Les transferts de contrôle UVC (PROBE, COMMIT, exposition, gain, ROI)
+   passent par `UsbDeviceConnection.controlTransfer`.
+3. Le flux vidéo passe par `ioctl` usbfs sur ce fd :
+   `USBDEVFS_SUBMITURB` / `USBDEVFS_REAPURBNDELAY`, type ISO ou BULK.
+4. `USBDEVFS_SETINTERFACE` choisit l’alternate setting dont la bande
+   passante couvre `dwMaxPayloadTransferSize`.
+
+`libusb` sur Android utilise ces mêmes ioctl. Ses mainteneurs déconseillent
+libusb/libuvc pour l’isochrone Android (pertes de paquets, issue libusb
+#1504). `libuvc` soumet par défaut 32 paquets par URB ; sur plusieurs SoC
+Android cela renvoie `ENOMEM` (issue libuvc #299). La valeur stable observée
+est souvent 8 à 12. Un empilement libusb n’apporte donc pas l’accès bas
+niveau : il ajoute une couche qui perd des paquets.
+
+Camera2 / External USB Camera d’Android n’expose pas les GUID Bayer
+inconnus, ni le COMMIT UVC, ni un fichier brut sans conversion du HAL.
+Inutilisable pour la priorité 1.
+
+## Bibliothèques examinées
+
+| Projet | Licence | État | Accès brut NexImage 10 |
+| --- | --- | --- | --- |
+| libusb 1.0.27+ | LGPL-2.1 | actif, mais « ne pas utiliser libusb pour l’UVC Android » | isochrone fragile, LGPL |
+| libuvc | BSD | release 2017, commits ensuite ; pas d’API Bayer (constat INDIGO) | GUID souvent ignoré, `ENOMEM` Android |
+| saki4510t/UVCCamera | Apache 2.0 + libusb LGPL | figé vers 2017, libuvc de 2016 | preview YUYV/MJPEG, Bayer absent |
+| shiyinghan/UVCAndroid 1.0.13 | Apache 2.0 | utilisé, ~100 issues ouvertes | callbacks NV21/RGBA, pas le brut propriétaire |
+| jiangdongguo/AndroidUSBCamera | Apache 2.0 | dernier essor 2023–2024 | OpenGL preview, pas un enregistreur astronomique |
+| ernestp/AndroidUSBCamera | Apache 2.0 | fork de mars 2026, Android 16, pages 16 Ko | même modèle preview, jeune |
+| pilote UVC du noyau + V4L2 | GPL | excellent sur Linux | `/dev/video` n’est pas accessible à une appli Android non privilégiée |
+| CameraX / Camera2 | SDK Android | actif | pas de Bayer UVC arbitraire |
+| OpenCV | Apache 2.0 | actif | dématriçage CPU, trop tard et trop cher si le fil USB n’est pas tenu |
+
+Code astronomique réutilisable comme **référence**, pas comme dépendance :
+
+| Projet | Apport | Licence à respecter |
+| --- | --- | --- |
+| oaCapture | NexImage 10, Y800 relu en GRBG, ROI, dématriçage au preview seulement | GPL : on ne copie pas le code |
+| INDIGO `ccd_uvc` | le GUID est détecté ; le dématriçage n’est pas le travail du pilote | ne pas vendor |
+| guvcview | table des GUID, dont GBRG/GRBG | GPL, même règle |
+| Siril | confirmation terrain du motif GRBG | hors chemin temps réel |
+
+Aucune de ces bibliothèques Android ne donne à la fois : GUID inconnu,
+zéro conversion, URB calibrés pour Android, compteur de `ERR`/`EOF`, et
+fichier octet-pour-octet. Les reprendre pour « aller plus vite » remet
+une copie et un dématriçage au milieu du chemin critique.
+
+## GPU du Fold 8
+
+Galaxy Z Fold 8 : Snapdragon 8 Elite Gen 5 for Galaxy, **Adreno 840**,
+Android 17, USB-C 3.1, écran interne 7,6" 2448×1848.
+
+Le dématriçage bilinéaire d’une trame de 10,7 Mpx et un histogramme 256
+niveaux sont petits pour cet Adreno. Le goulet est l’USB, pas le shader.
+Une copie `glTexSubImage2D` de 10 Mio à 14 fps représente ~150 Mo/s, à
+comparer à la bande passante LPDDR5X du téléphone (dizaines de Go/s).
+
+| API | Intérêt ici | Coût |
+| --- | --- | --- |
+| OpenGL ES 3.0, texture `R8` + fragment shader GRBG | preview couleur, histogramme en compute ES 3.1, disponible sur Adreno | une copie vers la texture |
+| Vulkan + `AHardwareBuffer` | supprime cette copie, synchronisation explicite | beaucoup plus de code, **aucun fps USB en plus** |
+| CPU (OpenCV, RenderScript) | RenderScript est retiré ; le CPU doit rester disponible pour récolter les URB | déconseillé sur le chemin preview |
+
+Vulkan sera justifié seulement si une trace montre que la copie GL fait
+tomber une trame. Il n’est pas la première brique. Le prototype preview
+en GLES 3.0, avec un bouton pour cycler GRBG / GBRG / RGGB / BGGR : le
+motif se vérifie à l’œil (le mauvais motif verdit le disque planétaire)
+et par un score de corrélation.
+
+## Comparaison des architectures
+
+Légende : **oui** = la propriété est naturelle dans cette architecture,
+**non** = elle est structurellement mauvaise, **via NDK** = il faut écrire
+le même code natif que l’option D, plus un pont.
+
+| Critère | A Expo + RN + dev build | B RN sans Expo | C Kotlin/Compose seul | D Kotlin + NDK C/C++ | E D + OpenGL ES | F D + Vulkan | G libusb/libuvc NDK | H USB Host Java seul |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Accès USB | via NDK | via NDK | contrôle seulement | usbfs direct | comme D | comme D | indirect, fragile | bulk/contrôle, **pas d’iso** |
+| NexImage 10 | si le module natif existe | idem | non pour le flux iso | oui | oui | oui | partiel | seulement si endpoint bulk |
+| RAW / Bayer | le pont convertit souvent | idem | non | octets bruts | preview GPU, fichier brut | idem | GUID mal exposés | si bulk et sans conversion |
+| Contrôle UVC | à écrire en natif | idem | `controlTransfer` oui | oui | oui | oui | partiel | oui pour le contrôle |
+| Format propriétaire | à parser soi-même | idem | descripteurs oui, flux non | oui | oui | oui | si le GUID est dans l’enum | descripteurs seulement |
+| FPS max | copie JNI/JS en plus | idem | bon si bulk | le meilleur | identique à D | identique à D | pertes documentées | bon si bulk |
+| Latence preview | haute (bridge) | haute | moyenne | basse | basse | la plus basse si la copie GL compte | moyenne | moyenne |
+| Copies mémoire | ≥ 3 | ≥ 3 | 1 à 2 | 1 (URB → trame) | +1 vers GPU | +0 si import mémoire | 2+ | 1 à 2 |
+| CPU | JS + conversion | idem | assemblage | assemblage seul | shader, CPU libre | CPU libre | libuvc + copies | assemblage |
+| GPU | possible, tard | possible | oui | non sans E/F | oui, suffisant | oui, gain marginal | à ajouter | oui |
+| Capture sans perte | le bridge jette des trames | idem | possible en bulk | oui, fichier = tampon | preview ≠ fichier | idem | non garanti | possible en bulk |
+| Stabilité | runtime RN + NDK | idem | bonne | bonne | bonne | plus de surface de bugs | `ENOMEM`, paquets perdus | bonne, incomplète |
+| Android 17 | dev build à regénérer | idem | oui | oui | oui | oui | correctifs locaux permanents | oui |
+| Fold 8 | Compose n’est pas là ; RN fold est un surcoût | idem | WindowSizeClass, charnière | UI en Compose | idem | idem | pas d’UI | UI en Compose |
+| Complexité | la plus haute (deux mondes) | haute | insuffisante | moyenne | moyenne | haute | moyenne, mauvaise cible | faible, plafond USB |
+| Maintenance | Expo + RN + fork natif | RN + fork | Google | Google + notre code UVC | Google | Google | libusb LGPL, libuvc lent | Google |
+| Dépendances | Node, Expo, Hermes, NDK | Node, RN, NDK | AndroidX | NDK | GLES du système | Vulkan du système | LGPL + BSD | aucune |
+| Licence | mélange | mélange | Apache | Apache, code à nous | idem | idem | LGPL-2.1 contaminante si lien statique | Apache |
+| Déploiement sur le Fold | Expo Go **impossible** ; APK dev build | APK | APK | APK | APK | APK | APK | APK |
+
+Expo Go est écarté : il ne charge pas ce module natif. Un development build
+Expo serait une coquille autour du même NDK, avec un pont qui copie des
+trames de 10 Mio. La facilité de développement perd les priorités 1 à 5.
+
+React Native sans Expo a le même pont. Il n’achète rien sur l’USB.
+
+Kotlin seul (colonne C et H) est la bonne UI et le bon chemin de contrôle,
+et il est **incomplet** le jour où l’endpoint vidéo est isochrone. La
+NexImage 10 peut être bulk (USB 3 TIS) ou iso. L’application doit démarrer
+dans les deux cas.
+
+libusb/libuvc (colonne G) est le réflexe desktop. Sur Android il est le
+chemin dont les bugs ouverts parlent de paquets perdus. On s’en sert comme
+spec, on ne l’embarque pas.
+
+Vulkan (colonne F) n’augmente pas le fps USB. OpenGL ES 3.0 fait le
+dématriçage et le preview. Vulkan reste une optimisation mesurée, pas le
+socle.
+
+## Architecture recommandée
+
+**Kotlin, Jetpack Compose, C/C++ NDK, usbfs, OpenGL ES 3.0.**
+Pas Expo. Pas React Native. Pas libusb. Pas Camera2. Vulkan en réserve.
 
 ```
-GUID : 47524247 - 0000 - 1000 - 8000 - 00aa00389b71
-         │                │
-         │                └── suffixe NON-STANDARD (DirectShow utilise 0010)
-         └── Data1 = 0x47524247
+Galaxy Z Fold 8
+  UsbManager                permission, ouverture, fd
+  controlTransfer           PROBE, COMMIT, exposition, gain, ROI
+  descripteurs bruts        GUID, y compris inconnus, alternate settings
+        │
+  NDK  uvc_pump             USBDEVFS_SUBMITURB  ISO ou BULK
+        │                   8–16 URB, ≤ 12 paquets iso
+  uvc_assemble              en-tête UVC, FID, EOF, bit ERR
+        │                   une copie URB → tampon de trame
+        ├─ fichier .raw     octets capteur, aucun dématriçage
+        └─ texture GL_R8    shader GRBG, preview seulement
+  Compose                   nuit (fond noir, rouge faible), charnière Fold
 ```
 
-**Interprétation ASCII des octets Data1 (ordre d'affichage GUID) :**
+Pourquoi ce découpage, dans l’ordre des priorités :
 
-| Octet hex | ASCII |
-|-----------|-------|
-| 0x47 | G |
-| 0x52 | R |
-| 0x42 | B |
-| 0x47 | G |
+1. **Qualité.** Le fichier est le tampon UVC après retrait de l’en-tête de
+   payload, rien d’autre. Le dématriçage n’existe que dans le shader.
+2. **Trames perdues.** Le fil qui récolte les URB ne dématrice pas, n’écrit
+   pas le disque de façon synchrone, et ne passe pas par un pont JS. Les
+   compteurs `ERR`, trame incomplète et file pleine sont affichés.
+3. **USB/UVC et Bayer.** Le parseur lit le GUID 16 octets. Un format absent
+   de libuvc reste sélectionnable. Y800 et GRBG sont tous les deux gardés.
+4. **FPS.** L’alternate setting est le plus petit qui couvre
+   `dwMaxPayloadTransferSize`. La vitesse USB est lue, pas supposée.
+5. **Latence.** Dernière trame complète uniquement. Le preview peut sauter ;
+   le compteur de sauts est séparé du compteur de pertes USB.
+6. **Contrôles.** `SET_CUR` / `GET_MIN` / `GET_MAX` sur l’unité caméra et
+   l’unité processing, plus le ROI des descripteurs de frame. Le prototype
+   expose d’abord l’exposition et le gain quand les descripteurs les
+   annoncent.
+7. **Sans perte.** Bouton « une trame » : `.raw` + JSON (GUID, largeur,
+   hauteur, bpp, pts). Le conteneur SER/FITS viendra après le test de format.
+8. **GPU.** Fragment shader. Le CPU reste sur usbfs.
+9. **Stabilité Fold.** Une activité, `FLAG_KEEP_SCREEN_ON`, pas de service
+   caché. APK `arm64-v8a` seulement : le Fold 8 est arm64, et le layout
+   `usbdevfs_urb` doit être celui du noyau 64 bits.
+10. **UI.** Compose, thème nuit, colonne de mesures à côté du preview quand
+    l’écran interne est ouvert.
+11. **Déploiement.** `./gradlew :app:assembleDebug`, copie de l’APK, installation
+    locale. Pas de compte Expo, pas de store.
 
-→ **FOURCC = `GRBG`**
+Le prototype qui suit est cette architecture réduite au chemin
+énumération → négociation UVC → tampon natif → preview, plus les mesures.
+Il ne contient pas encore l’enregistrement continu, le stacking ni la
+cartographie complète des contrôles. Ces pièces n’apportent rien tant que
+la vitesse USB et le GUID ne sont pas lus sur le Fold.
 
-> Note : un FOURCCMap DirectShow standard encoderait `GRBG` comme `0x47425247` (little-endian DWORD), pas `0x47524247`. Le GUID NexImage utilise une variante propriétaire TIS/Celestron avec suffixe `1000`, mais le format pixel est confirmé **GRBG 8-bit Bayer** par V4L2, INDIGO et oaCapture.
+## Ce que le prototype doit trancher
 
-### Format pixel
+| Question | Mesure |
+| --- | --- |
+| USB 3 ou repli USB 2 ? | `USBDEVFS_GET_SPEED` |
+| Bulk ou isochrone ? | `bmAttributes` de l’endpoint VS |
+| Y800, GRBG, ou un 16 bits ? | liste des descripteurs VS |
+| Le 16 bits porte-t-il 12 bits utiles ? | entropie de l’octet bas sur une trame sauvée |
+| Le motif est-il bien GRBG ? | score de mosaïque + cycle visuel des 4 motifs |
+| Quel fps, quel débit, quelles pertes ? | compteurs de la pompe, fenêtre d’une seconde |
+| Le téléphone tient-il 3,85 W ? | `bMaxPower`, et une déconnexion sous flux |
+| GLES absorbe-t-il le preview ? | âge de la trame affichée, CPU, mémoire |
 
-| Propriété | Valeur |
-|-----------|--------|
-| Nom | GRBG (8-bit Bayer GRGR/BGBG) |
-| Bits/pixel | 8 |
-| Pattern | Ligne paire : G R G R… / Ligne impaire : B G B G… |
-| Taille frame | width × height bytes (ex. 3872×2764 = 10 702 208 bytes) |
-| Debayer requis | Oui, pour preview couleur |
-| Équivalent libuvc | `UVC_FRAME_FORMAT_SGRBG8` / FOURCC `"GRBG"` |
-| Équivalent V4L2 | `V4L2_PIX_FMT_GRBG` |
-| Équivalent INDIGO | `{ UVC_FRAME_FORMAT_SGRBG8, "GRBG", "RAW8 %dx%d" }` |
-
-### Y800 (format de test prototype)
-
-| Propriété | Valeur |
-|-----------|--------|
-| FOURCC | `Y800` (0x30303859) |
-| Type | 8-bit grayscale (MONO8) |
-| libuvc | `UVC_FRAME_FORMAT_GRAY8` |
-| Usage | Test débit USB sans debayer, focus, drift |
-
----
-
-## 9. RECOMMENDED ARCHITECTURE
-
-### Choix : **D + E + G — Android natif Kotlin/Compose + NDK (libusb/libuvc) + OpenGL ES 3.2**
-
-### Justification technique
-
-1. **Qualité des données (priorité #1)** : libuvc accède directement au flux Bayer GRBG 8-bit sans recompression. La capture lossless écrit le buffer natif tel quel (FITS/SER/RAW). Aucune couche JavaScript ou bridge ne dégrade les données.
-
-2. **Zéro frame perdu (#2)** : Un ring buffer triple natif avec thread capture SCHED_FIFO et transferts isoc tunés (`packets_per_transfer ≤ 8`) minimise les drops. React Native/Expo ne permet pas ce niveau de contrôle thread/memory.
-
-3. **Accès USB/UVC complet (#3)** : Seul libusb+libuvc via NDK offre VS_PROBE/COMMIT, énumération formats, contrôles exposure/gain/ROI sur Samsung sans root. Camera2 et Expo ne le supportent pas.
-
-4. **FPS (#4)** : INDIGO atteint 7 fps plein cadre sur Linux avec la même stack. Le pipeline 1-copy natif reproduit ces performances. Expo ajouterait 2–3 copies et du GC pressure.
-
-5. **Latence preview (#5)** : OpenGL ES debayer directement depuis texture R8 → SurfaceView. Latence cible <100 ms vs >300 ms via bridge RN.
-
-6. **Contrôles (#6)** : INDIGO `ccd_uvc` prouve le mapping complet des contrôles UVC NexImage 10 — réutilisable en C++.
-
-7. **Capture lossless (#7)** : Écriture async du buffer Bayer sans debayer ni conversion.
-
-8. **GPU (#8)** : Adreno 840 + GLSL debayer Malvar-He : >30 fps preview à 10.7 Mpix. Vulkan reporté en phase 2.
-
-9. **Stabilité Fold 8 (#9)** : APK natif, pas de runtime Expo/Hermes. Fork AndroidUSBCamera compatible Android 16/16K pages.
-
-10. **UI Fold (#10)** : Jetpack Compose + WindowSizeClass natif, meilleur support dual-pane que RN.
-
-11. **Facilité de dev (#11)** : Plus complexe qu'Expo initialement, mais c'est le **seul** chemin viable pour les priorités 1–10.
-
-### Stack technique finale
-
-| Couche | Technologie |
-|--------|-------------|
-| Langage UI | Kotlin 2.x |
-| UI Framework | Jetpack Compose + Material 3 |
-| USB Permission | Android USB Host API |
-| UVC Stack | libusb 1.0.27 + libuvc (patches Android) |
-| Native | C++17, CMake, NDK r27 |
-| Preview GPU | OpenGL ES 3.2 (GLSL debayer) |
-| Capture | FITS (CFITSIO) + SER |
-| Référence | INDIGO ccd_uvc, ernestp/AndroidUSBCamera |
-| Build | Gradle 8.x, minSdk 26, targetSdk 36 |
-| Déploiement | APK/AAB sideload (pas de Play Store requis) |
-
-### Ce qui est explicitement rejeté
-
-- **Expo Go** : pas d'USB natif
-- **Expo Dev Build + RN** : copies mémoire, latence, pas de gain vs natif
-- **Camera2 seul** : pas de Bayer RAW UVC
-- **Vulkan v1** : complexité sans gain mesurable pour debayer single-pass
-- **USB Host API sans libuvc** : réimplémentation inutile
-
-### Feuille de route
-
-1. ✅ **Prototype `neximage-probe`** — validation USB → Y800/GRBG → preview + métriques  
-2. Confirmer FPS/drops sur Fold 8 réel  
-3. Implémenter debayer GLSL + histogramme  
-4. UI Compose Fold + thème nuit  
-5. Capture FITS/SER + contrôles complets  
-6. (Optionnel) Migration debayer → Vulkan compute  
-
----
-
-## 10. Références
-
-- [INDIGO ccd_uvc](https://github.com/indigo-astronomy/indigo/tree/master/indigo_drivers/ccd_uvc) — driver UVC, mapping GRBG
-- [INDIGO issue #421](https://github.com/indigo-astronomy/indigo/issues/421) — NexImage 10 debayer GRBG
-- [oaCapture issue #252](https://github.com/openastroproject/openastro/issues/252) — NexImage 10 V4L2 GRBG
-- [libuvc Android ENOMEM #299](https://github.com/libuvc/libuvc/issues/299)
-- [libusb Android isoc #1504](https://github.com/libusb/libusb/issues/1504)
-- [ernestp/AndroidUSBCamera](https://github.com/ernestp/AndroidUSBCamera) — fork maintenu 2026
-- [Void Computing — Raw UVC on Android](https://voidcomputing.hu/blog/android-uvc/)
-- [DirectShow FOURCC GUID mapping](https://learn.microsoft.com/en-us/windows/win32/directshow/fourcc-codes)
-- [Snapdragon 8 Elite Gen 5 product brief](https://www.qualcomm.com/content/dam/qcomm-martech/dm-assets/documents/Snapdragon-8-Elite-Gen-5-product-brief.pdf)
+Si le flux tient le fps annoncé sans bit `ERR` et sans trame courte, cette
+architecture est confirmée. Si le repli est USB 2, on garde la même pile et
+on impose un ROI. Si l’isochrone Android perd des paquets malgré 8 URB de
+8 paquets, on bascule l’alternate setting bulk quand il existe, avant
+d’envisager un autre système. On ne revient pas à Expo pour ça.
