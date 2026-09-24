@@ -25,9 +25,9 @@ Dans Chrome sur le Fold 8, ouvrir :
 
 **https://github.com/emckenz/neximage-capture/releases/latest**
 
-Pour une version précise (ex. v0.1.1) :
+Pour une version précise (ex. v0.1.2) :
 
-**https://github.com/emckenz/neximage-capture/releases/tag/v0.1.1**
+**https://github.com/emckenz/neximage-capture/releases/tag/v0.1.2**
 
 > Si la page renvoie 404, le miroir GitHub n’est pas encore activé — voir
 > [Connecter GitHub](#connecter-github-origin--github) ci-dessous.
@@ -36,7 +36,7 @@ Pour une version précise (ex. v0.1.1) :
 
 Sur la page **Releases**, section **Assets** :
 
-- Télécharger **`neximage-probe-v0.1.0-debug.apk`**
+- Télécharger **`neximage-probe-v0.1.2-debug.apk`**
 - **Ne pas** ouvrir le fichier `.sha256` (c’est seulement la checksum)
 
 ### 3. Autoriser l’installation
@@ -50,8 +50,8 @@ Android peut demander :
 
 - Ouvrir le fichier téléchargé (notification ou app **Téléchargements**)
 - Appuyer sur **Installer**
-- Lancer **NexImage Probe**, brancher la NexImage 10 en USB-C OTG, accorder
-  la permission USB
+- Lancer **NexImage Probe**, brancher la NexImage 10 en USB-C OTG, appuyer sur
+  **Chercher**, puis **accepter** la fenêtre système « Autoriser l’accès USB »
 
 ### 5. Utiliser
 

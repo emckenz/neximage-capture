@@ -241,11 +241,8 @@ class MainActivity : ComponentActivity() {
             Intent(permissionAction).setPackage(packageName),
             flags,
         )
-        if (!usb.requestPermission(device, pending)) {
-            status = "Impossible d'ouvrir la demande USB. Débranchez/rebranchez la caméra puis réessayez."
-        } else {
-            status = "Autorisez l'accès USB dans la fenêtre système…"
-        }
+        usb.requestPermission(device, pending)
+        status = "Autorisez l'accès USB dans la fenêtre système…"
     }
 
     private fun open(device: UsbDevice) {
