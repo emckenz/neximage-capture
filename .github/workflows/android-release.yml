@@ -4,6 +4,12 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version tag suffix (e.g. 0.1.0 → v0.1.0)"
+        required: true
+        default: "0.1.0"
 
 permissions:
   contents: write
@@ -22,12 +28,17 @@ jobs:
           java-version: "17"
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
 
-      - name: Install NDK and CMake
+      - name: Install SDK components
         run: |
-          sdkmanager --install "ndk;27.0.12077973" "cmake;3.22.1"
-          echo "sdk.dir=$ANDROID_HOME" > local.properties
+          sdkmanager --install \
+            "platforms;android-35" \
+            "build-tools;35.0.0" \
+            "ndk;27.0.12077973" \
+            "cmake;3.22.1"
+          echo "sdk.dir=${ANDROID_SDK_ROOT}" > local.properties
+          echo "${ANDROID_SDK_ROOT}/build-tools/35.0.0" >> "$GITHUB_PATH"
 
       - name: Build debug APK
         run: ./gradlew :app:assembleDebug --stacktrace
@@ -49,16 +60,21 @@ jobs:
 
       - name: Prepare release asset
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION="${GITHUB_REF_NAME#v}"
+          fi
           ASSET="neximage-probe-v${VERSION}-debug.apk"
           cp app/build/outputs/apk/debug/app-debug.apk "$ASSET"
           sha256sum "$ASSET" | tee "${ASSET}.sha256"
           echo "ASSET_NAME=$ASSET" >> "$GITHUB_ENV"
+          echo "RELEASE_TAG=v${VERSION}" >> "$GITHUB_ENV"
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: android-apk-${{ github.ref_name }}
+          name: android-apk-${{ env.RELEASE_TAG }}
           path: |
             ${{ env.ASSET_NAME }}
             ${{ env.ASSET_NAME }}.sha256
@@ -67,7 +83,8 @@ jobs:
       - name: Create GitHub Release and attach APK
         uses: softprops/action-gh-release@v2
         with:
-          name: NexImage Probe ${{ github.ref_name }}
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: NexImage Probe ${{ env.RELEASE_TAG }}
           body: |
             Debug build for Samsung Galaxy Z Fold 8 + Celestron NexImage 10 validation.
 

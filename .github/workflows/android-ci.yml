@@ -5,6 +5,7 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 jobs:
   build:
@@ -20,12 +21,17 @@ jobs:
           java-version: "17"
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
 
-      - name: Install NDK and CMake
+      - name: Install SDK components
         run: |
-          sdkmanager --install "ndk;27.0.12077973" "cmake;3.22.1"
-          echo "sdk.dir=$ANDROID_HOME" > local.properties
+          sdkmanager --install \
+            "platforms;android-35" \
+            "build-tools;35.0.0" \
+            "ndk;27.0.12077973" \
+            "cmake;3.22.1"
+          echo "sdk.dir=${ANDROID_SDK_ROOT}" > local.properties
+          echo "${ANDROID_SDK_ROOT}/build-tools/35.0.0" >> "$GITHUB_PATH"
 
       - name: Build debug APK
         run: ./gradlew :app:assembleDebug --stacktrace
