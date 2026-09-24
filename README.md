@@ -25,9 +25,9 @@ Dans Chrome sur le Fold 8, ouvrir :
 
 **https://github.com/emckenz/neximage-capture/releases/latest**
 
-Pour une version précise (ex. v0.1.0) :
+Pour une version précise (ex. v0.1.1) :
 
-**https://github.com/emckenz/neximage-capture/releases/tag/v0.1.0**
+**https://github.com/emckenz/neximage-capture/releases/tag/v0.1.1**
 
 > Si la page renvoie 404, le miroir GitHub n’est pas encore activé — voir
 > [Connecter GitHub](#connecter-github-origin--github) ci-dessous.

@@ -65,6 +65,7 @@ class MainActivity : ComponentActivity() {
     private var parsed: JSONObject? = null
 
     private val permissionAction = "astro.neximage.probe.USB_PERMISSION"
+    private var pendingDevice: UsbDevice? = null
     private val permissionReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action != permissionAction) return
@@ -75,9 +76,11 @@ class MainActivity : ComponentActivity() {
                 intent.getParcelableExtra(UsbManager.EXTRA_DEVICE)
             }
             if (intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false) && device != null) {
+                pendingDevice = null
                 open(device)
             } else {
-                status = "Permission USB refusée."
+                status = "Permission USB refusée. Appuyez sur Chercher, puis acceptez la fenêtre système. " +
+                    "Si rien n'apparaît : débranchez/rebranchez la caméra, ou redémarrez l'app."
             }
         }
     }
@@ -94,7 +97,13 @@ class MainActivity : ComponentActivity() {
             registerReceiver(permissionReceiver, filter)
         }
         setContent { ProbeScreen() }
-        scan()
+        handleUsbIntent(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleUsbIntent(intent)
     }
 
     override fun onDestroy() {
@@ -191,6 +200,20 @@ class MainActivity : ComponentActivity() {
         ) { Text(label) }
     }
 
+    private fun handleUsbIntent(intent: Intent?) {
+        val attached = if (Build.VERSION.SDK_INT >= 33) {
+            intent?.getParcelableExtra(UsbManager.EXTRA_DEVICE, UsbDevice::class.java)
+        } else {
+            @Suppress("DEPRECATION")
+            intent?.getParcelableExtra(UsbManager.EXTRA_DEVICE)
+        }
+        if (attached != null) {
+            requestAccess(attached)
+            return
+        }
+        scan()
+    }
+
     private fun scan() {
         val devices = usb.deviceList.values
         if (devices.isEmpty()) {
@@ -199,13 +222,29 @@ class MainActivity : ComponentActivity() {
         }
         val device = devices.firstOrNull { it.vendorId == 0x199e && it.productId == 0x8619 }
             ?: devices.first()
+        requestAccess(device)
+    }
+
+    private fun requestAccess(device: UsbDevice) {
         status = "Trouvé ${device.deviceName} VID %04x PID %04x".format(device.vendorId, device.productId)
-        if (usb.hasPermission(device)) open(device) else {
-            val pending = PendingIntent.getBroadcast(
-                this, 0, Intent(permissionAction).setPackage(packageName), PendingIntent.FLAG_MUTABLE,
-            )
-            usb.requestPermission(device, pending)
-            status = "Demande de permission USB envoyée."
+        if (usb.hasPermission(device)) {
+            pendingDevice = null
+            open(device)
+            return
+        }
+        pendingDevice = device
+        val flags = PendingIntent.FLAG_UPDATE_CURRENT or
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) PendingIntent.FLAG_MUTABLE else 0
+        val pending = PendingIntent.getBroadcast(
+            this,
+            device.deviceId,
+            Intent(permissionAction).setPackage(packageName),
+            flags,
+        )
+        if (!usb.requestPermission(device, pending)) {
+            status = "Impossible d'ouvrir la demande USB. Débranchez/rebranchez la caméra puis réessayez."
+        } else {
+            status = "Autorisez l'accès USB dans la fenêtre système…"
         }
     }
 
@@ -530,12 +569,13 @@ private data class ProbeReport(
             6 -> "SuperPlus"
             else -> "vitesse $speed"
         }
-        return "fps %.1f   %.1f Mbit/s   $speedName\nOK $framesOk   perdues $framesDropped   ERR $errBits   URB $urbErrors\n" +
-            "paquets $packets   en-têtes $badHeaders   PTS $pts\n" +
-                        "preview ${previewAgeMs} ms   dernière trame $lastLength octets   mosaïque ${if (mosaic) "oui" else "non"} (×${bayerMilli / 1000.0})\n" +
-            "CPU %.0f ticks/s   natif %.1f Mio   Java %.1f Mio".format(
-                fps, mbps, cpuTicksPerSec, nativeMb, javaMb,
-            )
+        return (
+            "fps %.1f   %.1f Mbit/s   $speedName\n" +
+                "OK $framesOk   perdues $framesDropped   ERR $errBits   URB $urbErrors\n" +
+                "paquets $packets   en-têtes $badHeaders   PTS $pts\n" +
+                "preview ${previewAgeMs} ms   dernière trame $lastLength octets   mosaïque ${if (mosaic) "oui" else "non"} (×${bayerMilli / 1000.0})\n" +
+                "CPU %.0f ticks/s   natif %.1f Mio   Java %.1f Mio"
+            ).format(fps, mbps, cpuTicksPerSec, nativeMb, javaMb)
     }
 }
 
