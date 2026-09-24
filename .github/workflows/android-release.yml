@@ -1,0 +1,87 @@
+name: Android Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install NDK and CMake
+        run: |
+          sdkmanager --install "ndk;27.0.12077973" "cmake;3.22.1"
+          echo "sdk.dir=$ANDROID_HOME" > local.properties
+
+      - name: Build debug APK
+        run: ./gradlew :app:assembleDebug --stacktrace
+
+      - name: Verify APK was generated
+        run: |
+          test -f app/build/outputs/apk/debug/app-debug.apk
+          ls -lh app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Validate APK (aapt badging)
+        run: |
+          BADGING=$(aapt dump badging app/build/outputs/apk/debug/app-debug.apk)
+          echo "$BADGING" | head -20
+          echo "$BADGING" | grep -q "package: name='astro.neximage.probe'"
+          echo "$BADGING" | grep -q "application-label:"
+
+      - name: Validate APK (zip integrity)
+        run: unzip -t app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Prepare release asset
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          ASSET="neximage-probe-v${VERSION}-debug.apk"
+          cp app/build/outputs/apk/debug/app-debug.apk "$ASSET"
+          sha256sum "$ASSET" | tee "${ASSET}.sha256"
+          echo "ASSET_NAME=$ASSET" >> "$GITHUB_ENV"
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-apk-${{ github.ref_name }}
+          path: |
+            ${{ env.ASSET_NAME }}
+            ${{ env.ASSET_NAME }}.sha256
+          retention-days: 90
+
+      - name: Create GitHub Release and attach APK
+        uses: softprops/action-gh-release@v2
+        with:
+          name: NexImage Probe ${{ github.ref_name }}
+          body: |
+            Debug build for Samsung Galaxy Z Fold 8 + Celestron NexImage 10 validation.
+
+            **Install on your phone**
+            1. Open this release page on your Fold 8
+            2. Download `neximage-probe-*-debug.apk` (the `.sha256` file is checksum only)
+            3. Allow installation from Chrome/GitHub if Android asks
+            4. Open the downloaded APK and tap **Install**
+
+            SHA-256 checksum is attached as a separate file for verification.
+          files: |
+            ${{ env.ASSET_NAME }}
+            ${{ env.ASSET_NAME }}.sha256
+          draft: false
+          prerelease: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

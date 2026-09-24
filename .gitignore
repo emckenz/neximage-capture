@@ -1,12 +1,15 @@
-<<<<<<< HEAD
+# Android / Gradle
 .gradle/
-=======
-# Android build
 prototype/**/build/
 prototype/**/.gradle/
 prototype/**/.cxx/
+build/
+**/build/
+.cxx/
+captures/
+
+# APK / AAB — never commit; distribute via GitHub Releases
 *.apk
-!releases/*.apk
 *.aab
 
 # Android SDK (local only)
@@ -16,13 +19,9 @@ android-sdk/
 agent-tools/
 
 # IDE
->>>>>>> 541fb9c1 (Add downloadable debug APK for direct phone install)
 .idea/
-local.properties
-build/
-**/build/
 *.iml
+local.properties
+
+# Native test artifacts
 native/uvc/test_uvc
-agent-tools/
-.cxx/
-captures/
