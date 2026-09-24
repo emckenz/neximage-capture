@@ -1,4 +1,22 @@
+<<<<<<< HEAD
 .gradle/
+=======
+# Android build
+prototype/**/build/
+prototype/**/.gradle/
+prototype/**/.cxx/
+*.apk
+!releases/*.apk
+*.aab
+
+# Android SDK (local only)
+android-sdk/
+
+# Agent tool artifacts
+agent-tools/
+
+# IDE
+>>>>>>> 541fb9c1 (Add downloadable debug APK for direct phone install)
 .idea/
 local.properties
 build/

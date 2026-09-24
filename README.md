@@ -15,6 +15,16 @@ environnement n’a pas la caméra.
 
 ## Lancer les tests du protocole
 
+### Installation directe sur le téléphone (sans PC)
+
+1. Télécharger [`releases/neximage-probe-v0.1.0-debug.apk`](releases/neximage-probe-v0.1.0-debug.apk) depuis le dépôt
+2. Autoriser l'installation depuis le navigateur ou « Fichiers »
+3. Ouvrir l'APK → **Installer**
+
+Voir [`releases/README.md`](releases/README.md) pour les instructions détaillées.
+
+### Build local (optionnel)
+
 ```bash
 make -C native/uvc test
 ```
