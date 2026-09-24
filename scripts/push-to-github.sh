@@ -2,7 +2,7 @@
 # Push main + tags to GitHub and trigger the Release workflow (tag v0.1.0).
 set -euo pipefail
 
-REPO="${GITHUB_REPO:-Eric-McKenzie/neximage-capture}"
+REPO="${GITHUB_REPO:-emckenz/neximage-capture}"
 REMOTE="${GIT_REMOTE:-github}"
 
 if ! git remote get-url "$REMOTE" &>/dev/null; then

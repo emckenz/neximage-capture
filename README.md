@@ -23,11 +23,11 @@ GitHub Releases.
 
 Dans Chrome sur le Fold 8, ouvrir :
 
-**https://github.com/Eric-McKenzie/neximage-capture/releases/latest**
+**https://github.com/emckenz/neximage-capture/releases/latest**
 
 Pour une version précise (ex. v0.1.0) :
 
-**https://github.com/Eric-McKenzie/neximage-capture/releases/tag/v0.1.0**
+**https://github.com/emckenz/neximage-capture/releases/tag/v0.1.0**
 
 > Si la page renvoie 404, le miroir GitHub n’est pas encore activé — voir
 > [Connecter GitHub](#connecter-github-origin--github) ci-dessous.
@@ -67,7 +67,7 @@ Actions fonctionnent :
 
 1. Ouvrir https://cursor.com/codebase/eric-mckenzie/neximage-capture
 2. Paramètres du dépôt → **Connect GitHub** / **Publish to GitHub**
-3. Créer ou lier `Eric-McKenzie/neximage-capture` sur GitHub
+3. Créer ou lier `emckenz/neximage-capture` sur GitHub
 4. Pousser le tag de release (fait automatiquement par CI, ou manuellement) :
 
 ```bash
