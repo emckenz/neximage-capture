@@ -190,9 +190,11 @@ Java_astro_neximage_probe_NativePump_parseConfig(JNIEnv *env, jobject, jbyteArra
     if (!json) return (*env)->NewStringUTF(env, "{}");
     used += (size_t)snprintf(json + used, cap - used,
                              "{\"powerUnits\":%d,\"usb2mA\":%d,\"usb3mA\":%d,\"vc\":%d,\"vs\":%d,"
+                             "\"descBytes\":%d,\"csVs\":%d,\"uncompressed\":%d,\"frameBased\":%d,"
                              "\"cameraTerminal\":%d,\"processingUnit\":%d,\"formats\":[",
                              dev.max_power_units, dev.max_power_ma_usb2, dev.max_power_ma_usb3,
                              dev.video_control_interface, dev.video_stream_interface,
+                             dev.descriptor_length, dev.cs_vs_count, dev.saw_uncompressed, dev.saw_frame_based,
                              dev.camera_terminal_id, dev.processing_unit_id);
     for (i = 0; i < dev.format_count; i++) {
         const UvcFrameDesc *f = &dev.formats[i];

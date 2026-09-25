@@ -88,26 +88,39 @@ int uvc_parse_config(const unsigned char *desc, int length, int vendor, int prod
             }
         } else if (type == 0x24 && in_vs && len >= 4) {
             int subtype = b[2];
-            if (subtype == 0x04 && len >= 27 && out->format_count < 32) {
-                format_index = b[3];
-                bits = b[21];
-                memcpy(guid, b + 5, UVC_GUID_BYTES);
-            } else if (subtype == 0x05 && len >= 26 && format_index > 0 && out->format_count < 32) {
+            int frame_based = (subtype == 0x11);
+            out->cs_vs_count++;
+            if (subtype == 0x04 || subtype == 0x10) {
+                int need = (subtype == 0x10) ? 28 : 27;
+                if (len >= need) {
+                    format_index = b[3];
+                    bits = b[21];
+                    memcpy(guid, b + 5, UVC_GUID_BYTES);
+                    if (subtype == 0x04) out->saw_uncompressed = 1;
+                    else out->saw_frame_based = 1;
+                }
+            } else if ((subtype == 0x05 || subtype == 0x11) && len >= 26 &&
+                       format_index > 0 && out->format_count < 32) {
                 UvcFrameDesc *frame = &out->formats[out->format_count++];
                 int nint;
                 int i;
+                int interval_at = frame_based ? 17 : 21;
+                int type_at = frame_based ? 21 : 25;
                 memset(frame, 0, sizeof(*frame));
                 frame->format_index = format_index;
                 frame->frame_index = b[3];
                 frame->width = ru16(b + 5);
                 frame->height = ru16(b + 7);
                 frame->bits_per_pixel = bits;
-                frame->max_frame_bytes = ru32(b + 17);
-                frame->default_interval = (int)ru32(b + 21);
+                frame->max_frame_bytes = frame_based ? 0u : ru32(b + 17);
+                if (frame->max_frame_bytes == 0 && frame->width > 0 && frame->height > 0 && bits > 0) {
+                    frame->max_frame_bytes = (unsigned int)frame->width * (unsigned int)frame->height *
+                                             (unsigned int)((bits + 7) / 8);
+                }
+                frame->default_interval = (int)ru32(b + interval_at);
                 memcpy(frame->guid, guid, UVC_GUID_BYTES);
                 uvc_identify_guid(guid, bits, &frame->info);
-                nint = b[25];
-                if (nint == 0) nint = 0;
+                nint = b[type_at];
                 if (nint > 8) nint = 8;
                 frame->interval_count = 0;
                 for (i = 0; i < nint && 26 + (i + 1) * 4 <= len; i++) {
@@ -150,6 +163,7 @@ int uvc_parse_config(const unsigned char *desc, int length, int vendor, int prod
         offset += len;
     }
 
+    out->descriptor_length = length;
     out->max_power_units = max_power;
     out->max_power_ma_usb2 = max_power * 2;
     out->max_power_ma_usb3 = max_power * 8;

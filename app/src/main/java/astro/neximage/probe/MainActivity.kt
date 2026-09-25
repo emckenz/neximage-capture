@@ -277,8 +277,17 @@ class MainActivity : ComponentActivity() {
         formats = list
         val power2 = root.optInt("usb2mA")
         val power3 = root.optInt("usb3mA")
+        val vs = root.optInt("vs", -1)
+        val descBytes = root.optInt("descBytes")
+        val csVs = root.optInt("csVs")
+        val why = when {
+            list.isNotEmpty() -> ""
+            vs < 0 -> " L'interface de streaming est absente de ces $descBytes octets : Android n'a pas renvoyé les descripteurs vidéo."
+            csVs == 0 -> " Interface vidéo $vs trouvée, sans descripteur de format dans ces $descBytes octets."
+            else -> " Interface vidéo $vs, $csVs descripteur(s) de classe, toujours 0 trame reconnue."
+        }
         status = "Descripteurs lus. bMaxPower = $power2 mA si USB2, $power3 mA si USB3. " +
-            "${list.size} format(s). La DFK 33UJ003 demande environ 770 mA."
+            "${list.size} format(s). La DFK 33UJ003 demande environ 770 mA.$why"
     }
 
     private fun startFormat(fmt: VideoFormat) {
