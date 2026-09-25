@@ -13,6 +13,8 @@ import android.hardware.usb.UsbManager
 import android.os.Build
 import android.os.Bundle
 import android.os.Debug
+import android.net.Uri
+import android.provider.Settings
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -115,6 +117,9 @@ class MainActivity : ComponentActivity() {
             registerReceiver(permissionReceiver, filter)
         }
         setContent { ProbeScreen() }
+        if (usb.deviceList.isNotEmpty()) {
+            ensureCameraPermission(prompt = true)
+        }
         handleUsbIntent(intent)
     }
 
@@ -180,11 +185,23 @@ class MainActivity : ComponentActivity() {
     private fun Controls(modifier: Modifier) {
         Column(modifier.padding(4.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("NexImage Probe", color = Color(0xFFE6D2C0), style = MaterialTheme.typography.titleLarge)
+            Text("v${BuildConfig.VERSION_NAME}", color = Color(0xFF9A8575))
             Text(status, color = Color(0xFFD8C4B0))
             Text(report.summary(), color = Color(0xFFC9B8A4))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 NightButton("Chercher") { scan() }
                 if (streaming) NightButton("Stop") { stopStream() }
+            }
+            if (!hasCameraPermission()) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    NightButton("Autoriser caméra") { ensureCameraPermission(prompt = true) }
+                    NightButton("Paramètres app") { openAppSettings() }
+                }
+                Text(
+                    "Sans v0.1.3+, la permission Caméra n'apparaît pas dans Paramètres. " +
+                        "Utilisez le bouton ci-dessus ou réinstallez la dernière APK.",
+                    color = Color(0xFFAA9484),
+                )
             }
             formats.forEach { fmt ->
                 NightButton("${fmt.fcc}  ${fmt.width}×${fmt.height}  ${fmt.bpp} bit  ${fmt.guid.take(8)}") {
@@ -240,6 +257,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun scan() {
+        if (!ensureCameraPermission(prompt = true)) return
         val devices = usb.deviceList.values
         if (devices.isEmpty()) {
             status = "Aucun périphérique USB. OTG activé, câble SuperSpeed, VBUS 770 mA."
@@ -289,13 +307,31 @@ class MainActivity : ComponentActivity() {
             PackageManager.PERMISSION_GRANTED
     }
 
+    private fun ensureCameraPermission(prompt: Boolean): Boolean {
+        if (hasCameraPermission()) return true
+        if (prompt) {
+            status = "Autorisez Caméra dans la fenêtre système (obligatoire pour UVC)…"
+            requestCameraPermission.launch(Manifest.permission.CAMERA)
+        }
+        return false
+    }
+
+    private fun openAppSettings() {
+        startActivity(
+            Intent(
+                Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                Uri.fromParts("package", packageName, null),
+            ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+        )
+    }
+
     private fun cameraPermissionDeniedMessage() = buildString {
         append(
             "Permission Caméra refusée. Android l'exige pour les caméras USB (UVC) " +
                 "avant même d'afficher la demande USB.",
         )
-        append("\nParamètres → Applications → NexImage Probe → Autorisations → Caméra → Autoriser.")
-        append("\nPuis appuyez sur Chercher.")
+        append("\nAppuyez sur « Autoriser caméra » dans l'app, ou réinstallez v0.1.4+.")
+        append("\nSur une ancienne APK, Caméra n'apparaît pas dans Paramètres.")
     }
 
     private fun usbPermissionDeniedMessage() = buildString {
