@@ -74,6 +74,10 @@ typedef struct UvcParsedDevice {
     int processing_unit_id;
     int format_count;
     UvcFrameDesc formats[32];
+    int descriptor_length;
+    int cs_vs_count;
+    int saw_uncompressed;
+    int saw_frame_based;
     int alt_count;
     UvcAltDesc alts[16];
 } UvcParsedDevice;

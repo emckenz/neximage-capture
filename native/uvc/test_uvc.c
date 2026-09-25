@@ -101,6 +101,64 @@ static void test_desc(void) {
     expect(dev.alts[0].ep.max_burst == 15, "burst");
     alt = uvc_choose_alt(&dev, 1024);
     expect(alt == 1, "choose alt 1");
+    expect(dev.saw_uncompressed == 1, "uncompressed seen");
+    expect(dev.saw_frame_based == 0, "not frame based");
+}
+
+static void test_frame_based(void) {
+    unsigned char raw[128];
+    int n = 0;
+    UvcParsedDevice dev;
+    unsigned char config[] = {9, 0x02, 0, 0, 1, 1, 0, 0x80, 50};
+    unsigned char iface_vs[] = {9, 0x04, 1, 0, 1, 14, 2, 0, 0};
+    unsigned char format[28];
+    unsigned char frame[30];
+    memset(format, 0, sizeof(format));
+    format[0] = 28;
+    format[1] = 0x24;
+    format[2] = 0x10;
+    format[3] = 1;
+    format[4] = 1;
+    format[5] = 'G';
+    format[6] = 'R';
+    format[7] = 'B';
+    format[8] = 'G';
+    format[11] = 0x10;
+    format[13] = 0x80;
+    format[16] = 0xaa;
+    format[18] = 0x38;
+    format[19] = 0x9b;
+    format[20] = 0x71;
+    format[21] = 8;
+    memset(frame, 0, sizeof(frame));
+    frame[0] = 30;
+    frame[1] = 0x24;
+    frame[2] = 0x11;
+    frame[3] = 1;
+    frame[5] = 0x20;
+    frame[6] = 0x0f;
+    frame[7] = 0xcc;
+    frame[8] = 0x0a;
+    frame[17] = 0x40;
+    frame[18] = 0x0d;
+    frame[19] = 0x03;
+    frame[21] = 1;
+    frame[26] = 0x40;
+    frame[27] = 0x0d;
+    frame[28] = 0x03;
+    put_desc(raw, &n, config, 9);
+    put_desc(raw, &n, iface_vs, 9);
+    put_desc(raw, &n, format, 28);
+    put_desc(raw, &n, frame, 30);
+    expect(uvc_parse_config(raw, n, 0x199e, 0x8619, &dev) == 1, "frame-based format");
+    expect(dev.max_power_ma_usb2 == 100, "usb2 100 mA");
+    expect(dev.max_power_ma_usb3 == 400, "usb3 400 mA");
+    expect(dev.saw_frame_based == 1, "frame based flag");
+    expect(dev.formats[0].width == 3872, "frame-based width");
+    expect(dev.formats[0].height == 2764, "frame-based height");
+    expect(dev.formats[0].info.bayer_phase == UVC_BAYER_GRBG, "frame-based phase");
+    expect(dev.formats[0].default_interval == 200000, "frame-based interval");
+    expect(dev.formats[0].max_frame_bytes == 3872u * 2764u, "frame-based size");
 }
 
 static void push_chunk(UvcAssembler *a, int fid, int eof, int err, const unsigned char *data, int n) {
@@ -201,6 +259,7 @@ static void test_bayer(void) {
 int main(void) {
     test_guid();
     test_desc();
+    test_frame_based();
     test_assemble();
     test_bayer();
     if (g_failed) {
