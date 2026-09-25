@@ -1,10 +1,12 @@
 package astro.neximage.probe
 
+import android.Manifest
 import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.PackageManager
 import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbDeviceConnection
 import android.hardware.usb.UsbManager
@@ -14,6 +16,8 @@ import android.os.Debug
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -66,6 +70,18 @@ class MainActivity : ComponentActivity() {
 
     private val permissionAction = "astro.neximage.probe.USB_PERMISSION"
     private var pendingDevice: UsbDevice? = null
+
+    private val requestCameraPermission = registerForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        val device = pendingDevice
+        if (granted && device != null) {
+            requestUsbPermission(device)
+        } else if (!granted) {
+            status = cameraPermissionDeniedMessage()
+        }
+    }
+
     private val permissionReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action != permissionAction) return
@@ -79,8 +95,10 @@ class MainActivity : ComponentActivity() {
                 pendingDevice = null
                 open(device)
             } else {
-                status = "Permission USB refusée. Appuyez sur Chercher, puis acceptez la fenêtre système. " +
-                    "Si rien n'apparaît : débranchez/rebranchez la caméra, ou redémarrez l'app."
+                status = when {
+                    !hasCameraPermission() -> cameraPermissionDeniedMessage()
+                    else -> usbPermissionDeniedMessage()
+                }
             }
         }
     }
@@ -104,6 +122,13 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         handleUsbIntent(intent)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        val device = pendingDevice ?: return
+        if (!hasCameraPermission() || usb.hasPermission(device)) return
+        requestUsbPermission(device)
     }
 
     override fun onDestroy() {
@@ -226,10 +251,24 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun requestAccess(device: UsbDevice) {
+        pendingDevice = device
         status = "Trouvé ${device.deviceName} VID %04x PID %04x".format(device.vendorId, device.productId)
+        if (!hasCameraPermission()) {
+            status += "\nAutorisez Caméra (obligatoire pour UVC)…"
+            requestCameraPermission.launch(Manifest.permission.CAMERA)
+            return
+        }
         if (usb.hasPermission(device)) {
             pendingDevice = null
             open(device)
+            return
+        }
+        requestUsbPermission(device)
+    }
+
+    private fun requestUsbPermission(device: UsbDevice) {
+        if (!hasCameraPermission()) {
+            requestCameraPermission.launch(Manifest.permission.CAMERA)
             return
         }
         pendingDevice = device
@@ -242,7 +281,28 @@ class MainActivity : ComponentActivity() {
             flags,
         )
         usb.requestPermission(device, pending)
-        status = "Autorisez l'accès USB dans la fenêtre système…"
+        status = "Trouvé ${device.deviceName}. Acceptez la fenêtre « Accès USB »…"
+    }
+
+    private fun hasCameraPermission(): Boolean {
+        return ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) ==
+            PackageManager.PERMISSION_GRANTED
+    }
+
+    private fun cameraPermissionDeniedMessage() = buildString {
+        append(
+            "Permission Caméra refusée. Android l'exige pour les caméras USB (UVC) " +
+                "avant même d'afficher la demande USB.",
+        )
+        append("\nParamètres → Applications → NexImage Probe → Autorisations → Caméra → Autoriser.")
+        append("\nPuis appuyez sur Chercher.")
+    }
+
+    private fun usbPermissionDeniedMessage() = buildString {
+        append("Permission USB refusée. Appuyez sur Chercher et acceptez « Accès USB ».")
+        append("\nSi rien n'apparaît : débranchez/rebranchez la caméra.")
+        append("\nParamètres USB « Appareil connecté » = normal avec un adaptateur OTG.")
+        append("\nVérifiez aussi Paramètres → Sécurité → Auto Blocker (désactivé pour USB).")
     }
 
     private fun open(device: UsbDevice) {

@@ -51,7 +51,9 @@ Android peut demander :
 - Ouvrir le fichier téléchargé (notification ou app **Téléchargements**)
 - Appuyer sur **Installer**
 - Lancer **NexImage Probe**, brancher la NexImage 10 en USB-C OTG, appuyer sur
-  **Chercher**, puis **accepter** la fenêtre système « Autoriser l’accès USB »
+  **Chercher**, **accepter Caméra** puis **accepter l’accès USB**
+- Si aucune fenêtre USB n’apparaît : vérifier que **Caméra** est autorisée pour
+  l’app (Android l’exige pour les périphériques UVC)
 
 ### 5. Utiliser
 
